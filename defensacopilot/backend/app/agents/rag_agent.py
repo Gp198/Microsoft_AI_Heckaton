@@ -1,30 +1,31 @@
-# rag_agent.py - Agente que usa Azure Cognitive Search para grounding
+# rag_agent.py - RAG com FAISS local
 
 import os
-from azure.search.documents import SearchClient
-from azure.core.credentials import AzureKeyCredential
+import faiss
+import pickle
+import numpy as np
+from typing import List
+from sentence_transformers import SentenceTransformer
 
-AZURE_SEARCH_SERVICE = os.getenv("AZURE_SEARCH_SERVICE")
-AZURE_SEARCH_KEY = os.getenv("AZURE_SEARCH_KEY")
-AZURE_SEARCH_INDEX = os.getenv("AZURE_SEARCH_INDEX", "defensacopilot-index")
+# Carrega o modelo de embedding local (compatível com FAISS)
+model = SentenceTransformer("all-MiniLM-L6-v2")
 
+# Caminho para os documentos indexados localmente
+FAISS_INDEX_PATH = "faiss_index/index.faiss"
+DOCS_PATH = "faiss_index/docs.pkl"
+
+# Carrega FAISS index e os documentos
+index = faiss.read_index(FAISS_INDEX_PATH)
+with open(DOCS_PATH, "rb") as f:
+    documents = pickle.load(f)
+
+# Função de busca RAG
 async def rag_agent(query: str) -> str:
-    """
-    Consulta o índice do Azure Search e retorna um sumário com os documentos mais relevantes.
-    """
-    search_client = SearchClient(
-        endpoint=f"https://{AZURE_SEARCH_SERVICE}.search.windows.net",
-        index_name=AZURE_SEARCH_INDEX,
-        credential=AzureKeyCredential(AZURE_SEARCH_KEY)
-    )
+    query_embedding = model.encode([query])
+    D, I = index.search(np.array(query_embedding).astype("float32"), k=3)
 
-    results = search_client.search(query, top=3)
-    hits = [f"• {doc['title']}: {doc['content']}" for doc in results]
+    results: List[str] = []
+    for idx in I[0]:
+        results.append(f"• {documents[idx][:300]}...")
 
-    if not hits:
-        return "No relevant documents found in the knowledge base."
-
-    return (
-        f"\U0001F4D6 Intel Report from Search:\n" +
-        "\n\n".join(hits)
-    )
+    return "\n📖 RAG Intel Report:\n" + "\n".join(results)
