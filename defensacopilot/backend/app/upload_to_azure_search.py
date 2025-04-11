@@ -5,23 +5,26 @@ from PyPDF2 import PdfReader
 from azure.core.credentials import AzureKeyCredential
 from azure.search.documents import SearchClient
 from dotenv import load_dotenv
+from pathlib import Path
 
-load_dotenv()
+# === Load environment variables from a specific .env file ===
+env_path = Path("C:/Users/Utilizador/Documents/GitHub/Microsoft_AI_Heckaton/defensacopilot/backend/app/.env")
+load_dotenv(dotenv_path=env_path)
 
-# Configurações do Azure Search
+# === Azure Cognitive Search configuration ===
 AZURE_SEARCH_SERVICE = os.getenv("AZURE_SEARCH_SERVICE")
 AZURE_SEARCH_KEY = os.getenv("AZURE_SEARCH_KEY")
 AZURE_SEARCH_INDEX = os.getenv("AZURE_SEARCH_INDEX")
 AZURE_SEARCH_ENDPOINT = f"https://{AZURE_SEARCH_SERVICE}.search.windows.net"
 
-# Cliente do Azure Search
+# === Initialize Azure Search Client ===
 search_client = SearchClient(
     endpoint=AZURE_SEARCH_ENDPOINT,
     index_name=AZURE_SEARCH_INDEX,
     credential=AzureKeyCredential(AZURE_SEARCH_KEY)
 )
 
-# Funções de leitura
+# === File Readers ===
 def read_txt(path):
     with open(path, "r", encoding="utf-8") as f:
         return f.read()
@@ -34,15 +37,16 @@ def read_pdf(path):
     reader = PdfReader(path)
     return "\n".join([page.extract_text() for page in reader.pages if page.extract_text()])
 
-# Caminho para os ficheiros
-DOCS_FOLDER = "docs"
-files = os.listdir(DOCS_FOLDER)
-
-# Documentos a indexar
+# === File Directory and Loop ===
+DOCUMENTS_FOLDER = "docs"
+files = os.listdir(DOCUMENTS_FOLDER)
 batch = []
+docs_indexed = 0
+
 for file in files:
-    path = os.path.join(DOCS_FOLDER, file)
+    path = os.path.join(DOCUMENTS_FOLDER, file)
     ext = os.path.splitext(file)[1].lower()
+
     if ext == ".txt":
         content = read_txt(path)
     elif ext == ".csv":
@@ -50,7 +54,7 @@ for file in files:
     elif ext == ".pdf":
         content = read_pdf(path)
     else:
-        print(f"❌ Ignorado: {file} (formato não suportado)")
+        print(f"❌ Skipped unsupported format: {file}")
         continue
 
     if content:
@@ -58,17 +62,15 @@ for file in files:
             "id": str(uuid.uuid4()),
             "content": content
         })
-        print(f"✅ Documento '{file}' preparado.")
+        docs_indexed += 1
+        print(f"✅ Document indexed: {file}")
 
-# Upload
+# === Upload to Azure Search ===
 if batch:
-    result = search_client.upload_documents(documents=batch)
-    if all(r.succeeded for r in result):
-        print(f"\n🚀 {len(result)} documentos indexados com sucesso!")
-    else:
-        print("⚠️ Alguns documentos falharam:")
-        for r in result:
-            if not r.succeeded:
-                print(f" - {r.key}: {r.error_message}")
+    try:
+        result = search_client.upload_documents(documents=batch)
+        print(f"\n🚀 Uploaded {len(result)} documents to Azure Search index '{AZURE_SEARCH_INDEX}'.")
+    except Exception as e:
+        print(f"⚠️ Upload failed: {e}")
 else:
-    print("⚠️ Nenhum documento para indexar.")
+    print("⚠️ No documents to upload.")
