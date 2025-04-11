@@ -1,95 +1,75 @@
 import os
-from dotenv import load_dotenv
-from azure.search.documents import SearchClient
+import feedparser
 from semantic_kernel import Kernel
 from semantic_kernel.connectors.ai.open_ai import AzureChatCompletion
-import feedparser
 
-# === Load environment variables ===
-load_dotenv()
-AZURE_SEARCH_SERVICE = os.getenv("AZURE_SEARCH_SERVICE")
-AZURE_SEARCH_KEY = os.getenv("AZURE_SEARCH_KEY")
-AZURE_SEARCH_INDEX = os.getenv("AZURE_SEARCH_INDEX")
-AZURE_SEARCH_ENDPOINT = f"https://{AZURE_SEARCH_SERVICE}.search.windows.net/"
+# === Configure Azure OpenAI via environment variables ===
+OPENAI_DEPLOYMENT = os.getenv("OPENAI_DEPLOYMENT")
+OPENAI_ENDPOINT = os.getenv("OPENAI_ENDPOINT")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
-# === Azure Search client ===
-search_client = SearchClient(
-    endpoint=AZURE_SEARCH_ENDPOINT,
-    index_name=AZURE_SEARCH_INDEX,
-    credential=AZURE_SEARCH_KEY
-)
+# Validate required environment variables
+if not all([OPENAI_DEPLOYMENT, OPENAI_ENDPOINT, OPENAI_API_KEY]):
+    raise EnvironmentError("❌ Missing Azure OpenAI environment configuration.")
 
-# === Live news source (NATO RSS) ===
-def fetch_nato_news(limit=3):
-    url = "https://www.nato.int/cps/en/natolive/news.rss"
-    feed = feedparser.parse(url)
-    headlines = []
-
-    for entry in feed.entries[:limit]:
-        headlines.append(f"📰 {entry.title}\n🔗 {entry.link}")
-
-    return "\n".join(headlines) if headlines else "No NATO updates at the moment."
-
-# === Prompt with live + RAG context ===
-LIVE_INTEL_PROMPT = """
-You are an AI defense analyst providing a real-time situational report.
-
-Your response must ONLY use the context below: recent NATO headlines and retrieved defense documents.
-If no matching information is found, say:
-"No relevant live or archived data is available to answer this query."
-
----
-Live News:
-{live_context}
-
----
-Archived Context:
-{archived_context}
-
----
-Question:
-{query}
-
----
-Provide a concise and factual intelligence summary with relevant sources, in professional tone.
-"""
-
-# === Kernel with Azure OpenAI ===
+# === Initialize Semantic Kernel and AzureChatCompletion service ===
 kernel = Kernel()
 kernel.add_service(
     AzureChatCompletion(
-        deployment_name=os.getenv("OPENAI_DEPLOYMENT"),
-        endpoint=os.getenv("OPENAI_ENDPOINT"),
-        api_key=os.getenv("OPENAI_API_KEY")
+        deployment_name=OPENAI_DEPLOYMENT,
+        endpoint=OPENAI_ENDPOINT,
+        api_key=OPENAI_API_KEY
     )
 )
 
-# === Agent execution ===
-async def live_intel_agent(query: str) -> str:
+# === News feed sources relevant to defense and security ===
+FEED_URLS = [
+    "https://www.nato.int/cps/en/natolive/news_rss.xml",           # NATO official news
+    "https://www.defense.gov/DesktopModules/ArticleCS/RSS.ashx",   # U.S. Department of Defense
+    "https://feeds.bbci.co.uk/news/world/rss.xml",                 # BBC World News
+    "https://www.aljazeera.com/xml/rss/all.xml",                   # Al Jazeera
+]
+
+# === Extract the latest headlines from RSS feeds ===
+def fetch_recent_headlines(max_items=5):
+    all_headlines = []
+
+    for url in FEED_URLS:
+        feed = feedparser.parse(url)
+        for entry in feed.entries[:max_items]:
+            title = entry.title
+            summary = entry.summary if hasattr(entry, "summary") else ""
+            source = feed.feed.title if hasattr(feed, "title") else "Unknown source"
+            all_headlines.append(f"- [{source}] {title}: {summary}")
+
+    return "\n".join(all_headlines)
+
+
+# === Live Intel Agent Function ===
+async def live_intel_agent(user_query: str) -> str:
     try:
-        # Step 1: Get live headlines
-        live_context = fetch_nato_news()
+        # Step 1: Fetch live news
+        context_news = fetch_recent_headlines()
 
-        # Step 2: Retrieve archived documents from Azure Search
-        results = search_client.search(query, top=3)
-        docs = [doc["content"] for doc in results]
-        archived_context = "\n\n".join(docs) if docs else "None"
+        # Step 2: Create an advanced prompt
+        prompt = f"""
+You are a defense analyst assistant with access to recent military and geopolitical news.
+Based on the question below and the real-time updates provided, generate a concise and accurate summary.
 
-        # Step 3: Create prompt
-        prompt = LIVE_INTEL_PROMPT.format(
-            live_context=live_context,
-            archived_context=archived_context,
-            query=query
-        )
+Be factual. If information is unclear or unavailable, say: "There is no current confirmed information on that topic."
 
-        # Step 4: Run completion
-        completion = await kernel.services.get(AzureChatCompletion).complete(prompt)
-        response = completion.get_final_result()
+### User Question:
+{user_query}
 
-        # Step 5: Guardrail
-        if "no relevant" in response.lower():
-            return "📭 No actionable intelligence found based on live data or archived documents."
-        
-        return response
+### Real-time Defense Headlines:
+{context_news}
+
+### Response:
+"""
+
+        # Step 3: Use Semantic Kernel to generate the response
+        result = await kernel.complete(prompt)
+        return result.strip()
+
     except Exception as e:
         return f"❌ Live intelligence agent failed: {e}"
