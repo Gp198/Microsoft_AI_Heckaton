@@ -1,70 +1,38 @@
-# === Live Intelligence Agent ===
-# This agent fetches real-time defense-related news using RSS feeds
-# and summarizes it using Azure OpenAI via Semantic Kernel
+# live_intel_agent.py — Live Defense Intelligence Agent with Web Context
 
 import feedparser
-import datetime
-from semantic_kernel import Kernel
+from semantic_kernel.kernel import Kernel
 
-# Define a set of trusted defense RSS feeds
-RSS_FEEDS = [
-    "https://www.nato.int/cps/en/natolive/news.rss",
-    "https://www.defense.gov/Newsroom/News/Transcripts/Feed/",
-    "https://feeds.bbci.co.uk/news/world/rss.xml",
-    "https://www.reutersagency.com/feed/?best-topics=defence&post_type=best",
-    # Add more defense-related sources as needed
-]
-
-async def live_intel_agent(query: str, kernel: Kernel) -> str:
-    """
-    This agent gathers the latest defense intelligence using RSS feeds,
-    filters based on the user's query, and summarizes key information
-    using an LLM from Semantic Kernel.
-
-    Args:
-        query (str): The user's defense-related question.
-        kernel (Kernel): Initialized Semantic Kernel with AzureChatCompletion.
-
-    Returns:
-        str: A concise summary or insight based on live sources.
-    """
-
-    if kernel is None:
-        return "Live agent failed: Semantic Kernel instance not available."
-
+# === Live Intelligence Agent ===
+async def run_live_intel_agent(query: str, kernel: Kernel) -> str:
     try:
-        # Fetch the completion service from the Semantic Kernel
-        completion = kernel.get_service("azure-openai")
-        if completion is None:
-            return "Live agent failed: LLM service not found in kernel."
+        # RSS feeds for defense-related news (you can add more sources)
+        rss_feeds = [
+            "https://www.nato.int/cps/en/natolive/news_rss.htm",
+            "https://feeds.bbci.co.uk/news/world/rss.xml",
+            "https://www.defense.gov/Newsroom/News/Transcripts/"  # adjust if needed
+        ]
 
-        # Collect news items
-        articles = []
-        for feed_url in RSS_FEEDS:
-            feed = feedparser.parse(feed_url)
-            for entry in feed.entries:
-                # Combine title + summary to check if it's relevant
-                text = f"{entry.title} {entry.get('summary', '')}".lower()
-                if any(term in text for term in query.lower().split()):
-                    date = entry.get("published", "Unknown date")
-                    articles.append(f"[{date}] {entry.title}: {entry.link}")
+        # Extract entries from feeds
+        all_entries = []
+        for url in rss_feeds:
+            feed = feedparser.parse(url)
+            all_entries.extend(feed.entries[:5])  # Limit for performance
 
-        if not articles:
-            return "No recent articles found matching the query."
+        # Concatenate headlines and summaries
+        text_blob = "\n".join([f"{entry.title}: {entry.summary}" for entry in all_entries])
 
-        # Limit number of articles for summarization
-        selected = "\n".join(articles[:5])
-
-        # Prompt template to summarize
+        # Format the final prompt
         prompt = (
-            f"You are a defense analyst AI. Summarize the most critical insights from these updates:\n\n"
-            f"{selected}\n\n"
-            f"Focus on strategic movements, political implications, or military relevance."
+            f"You are an intelligence officer. Based on the news excerpts below, respond professionally and concisely to the query.\n"
+            f"News Excerpts:\n{text_blob}\n"
+            f"User Question: {query}\n"
+            f"Answer:"
         )
 
-        # Call the LLM
-        result = await completion.complete(prompt)
-        return result.strip()
+        # Use the correct service_id that was registered in main.py
+        completion = await kernel.get_service("azure-openai").complete(prompt=prompt)
+        return completion
 
     except Exception as e:
-        return f"Live intelligence agent failed: {e}"
+        return f"❌ Live intelligence agent failed: {e}"
