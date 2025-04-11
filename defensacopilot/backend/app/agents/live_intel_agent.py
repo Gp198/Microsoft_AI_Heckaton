@@ -1,90 +1,79 @@
 # live_intel_agent.py
 
-import feedparser
-import requests
-from semantic_kernel import Kernel
-from semantic_kernel.connectors.ai.open_ai import AzureChatCompletion
 import os
-from datetime import datetime
+import feedparser
+import aiohttp
+from openai import AsyncAzureOpenAI
 
 # === Load environment variables ===
-AZURE_API_KEY = os.getenv("OPENAI_API_KEY")
-AZURE_ENDPOINT = os.getenv("OPENAI_ENDPOINT")
-AZURE_DEPLOYMENT = os.getenv("OPENAI_DEPLOYMENT")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+OPENAI_ENDPOINT = os.getenv("OPENAI_ENDPOINT")
+OPENAI_DEPLOYMENT = os.getenv("OPENAI_DEPLOYMENT")
 
-# === Prompt Engineering (Advanced) ===
-INTEL_PROMPT = """
-You are a highly specialized military intelligence analyst.
-Your task is to provide reliable, fact-based, and concise answers about global defense activity.
+# === Real-time Defense Agent Class ===
+class LiveIntelAgent:
+    def __init__(self):
+        # Initialize Azure OpenAI client
+        self.client = AsyncAzureOpenAI(
+            api_key=OPENAI_API_KEY,
+            api_version="2023-07-01-preview",
+            azure_endpoint=OPENAI_ENDPOINT
+        )
+        self.deployment = OPENAI_DEPLOYMENT
 
-You must:
-- Use the retrieved context below as your source of truth.
-- If uncertain, clearly say you are not confident.
-- Never make up facts or speculate.
-- Suggest verification sources if applicable.
+    async def fetch_latest_news(self, topic="defense"):
+        """Fetch latest news articles from RSS feeds about the given topic."""
+        url = f"https://news.google.com/rss/search?q={topic}+when:7d&hl=en&gl=US&ceid=US:en"
+        feed = feedparser.parse(url)
+        entries = feed.entries[:5]
 
-### Context:
-{{$context}}
+        if not entries:
+            return "No recent articles were found on this topic."
 
-### User question:
-{{$input}}
+        articles = "\n".join([f"- {entry.title}" for entry in entries])
+        return f"Latest news headlines:\n{articles}"
 
-Provide a response in fluent, formal English and avoid hallucinations.
+    async def answer(self, user_input):
+        """Combine real-time info with LLM reasoning"""
+        # Guardrails: Reject overly vague prompts
+        if len(user_input.strip()) < 5:
+            return "⚠️ Please provide a more detailed question."
+
+        context = await self.fetch_latest_news(user_input)
+
+        prompt = f"""
+You are DefensaCopilot, an AI specialized in live defense intelligence.
+
+Your role:
+- Answer concisely using only facts.
+- If you’re unsure, say “I don’t have that information.”
+- Use the news context below to support your answer.
+
+News Context:
+{context}
+
+User Question:
+{user_input}
+
+Answer:
 """
 
-# === RAG: Fetch live defense updates ===
-def get_live_context():
-    feed_urls = [
-        "https://www.nato.int/cps/en/natohq/news.xml",  # NATO RSS
-        "https://www.defense.gov/Newsroom/News/Transcripts/rss.xml"
-    ]
-    
-    context_snippets = []
-    for url in feed_urls:
-        feed = feedparser.parse(url)
-        for entry in feed.entries[:3]:  # Limit to latest 3 from each feed
-            snippet = f"{entry.title}. {entry.summary}"
-            context_snippets.append(snippet)
-
-    return "\n\n".join(context_snippets)
-
-# === Semantic Kernel Setup ===
-def get_kernel():
-    kernel = Kernel()
-    kernel.add_service(
-        AzureChatCompletion(
-            deployment_name=AZURE_DEPLOYMENT,
-            endpoint=AZURE_ENDPOINT,
-            api_key=AZURE_API_KEY
+        # Call Azure OpenAI Chat Completion
+        response = await self.client.chat.completions.create(
+            deployment_id=self.deployment,
+            model="gpt-4",
+            messages=[
+                {"role": "system", "content": "You are an expert in defense and geopolitics."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.3,
+            max_tokens=500
         )
-    )
-    return kernel
 
-# === Validate response heuristically ===
-def validate_response(response: str) -> bool:
-    red_flags = [
-        "I don't know", "as an AI", "I cannot access", "might be", "possibly"
-    ]
-    return not any(flag in response.lower() for flag in red_flags)
+        reply = response.choices[0].message.content.strip()
 
-# === Main inference logic ===
-async def answer_question(query: str) -> str:
-    context = get_live_context()
-    kernel = get_kernel()
+        # Simple validation
+        if any(x in reply.lower() for x in ["i don't know", "unsure", "no data"]):
+            return "❌ Sorry, I couldn't find a reliable answer based on current information."
 
-    func = kernel.create_semantic_function(
-        function_name="LiveIntelAnalysis",
-        plugin_name="IntelChat",
-        prompt=INTEL_PROMPT,
-        description="Answer defense-related questions using live context.",
-        max_tokens=1024,
-        temperature=0.3,
-        top_p=0.8
-    )
-
-    result = await func.invoke_async(query, context=context)
-
-    if not validate_response(result):
-        return "⚠️ I couldn’t confidently answer based on reliable sources."
-
-    return str(result)
+        return reply
