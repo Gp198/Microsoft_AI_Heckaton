@@ -1,41 +1,37 @@
 # planner.py — Modular Dispatcher for DefensaCopilot Agents
 
+import asyncio
+from semantic_kernel import KernelFunctionReference
 from agents.disinfo_agent import disinfo_agent
 from agents.policy_agent import policy_agent
 from agents.threat_agent import threat_agent
-from agents.rag_agent import rag_agent
 from agents.live_intel_agent import live_intel_agent
 
-# === Main Routing Logic ===
-async def plan_and_run(query: str, kernel=None) -> str:
+# === Task planner and router ===
+async def plan_and_run(question: str, kernel):
     """
-    Directs the user query to the appropriate agent based on keyword detection.
+    Routes the user question to the appropriate agent based on keywords.
 
     Args:
-        query (str): The user's question.
-        kernel (Kernel): Optional Semantic Kernel instance for agents that require LLM services.
+        question (str): The user-provided question.
+        kernel: The Semantic Kernel instance.
 
     Returns:
-        str: Response from the selected agent.
+        str: The response from the selected agent.
     """
-    query_lower = query.lower()
+    question_lower = question.lower()
 
-    # Conversational live news updates
-    if any(k in query_lower for k in ["live", "real-time", "breaking", "nato", "update"]):
-        return await live_intel_agent(query, kernel)
+    try:
+        if "live" in question_lower or "update" in question_lower:
+            return await live_intel_agent(question)
+        elif any(kw in question_lower for kw in ["disinfo", "misinfo", "propaganda"]):
+            return await disinfo_agent(question, kernel)
+        elif any(kw in question_lower for kw in ["policy", "regulation", "legal"]):
+            return await policy_agent(question, kernel)
+        elif any(kw in question_lower for kw in ["threat", "attack", "risk"]):
+            return await threat_agent(question, kernel)
+        else:
+            return "🤔 I'm not sure which agent should handle this question. Please rephrase or provide more context."
 
-    # Disinformation analysis
-    elif any(k in query_lower for k in ["fake news", "disinfo", "is it true", "rumor"]):
-        return await disinfo_agent(query)
-
-    # Threat analysis
-    elif any(k in query_lower for k in ["troop", "attack", "missile", "border", "drone"]):
-        return await threat_agent(query)
-
-    # Policy and budget questions
-    elif any(k in query_lower for k in ["budget", "policy", "spending", "treaty"]):
-        return await policy_agent(query)
-
-    # Default fallback to RAG-based document analysis
-    else:
-        return await rag_agent(query)
+    except Exception as e:
+        return f"❌ Agent execution failed: {e}"
