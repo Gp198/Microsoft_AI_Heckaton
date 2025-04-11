@@ -5,35 +5,77 @@
 # treaties, or policy-related topics.
 # -----------------------------------------------------------------
 
-async def policy_agent(query: str) -> str:
-    """
-    Simulates a response to a query about defense policy, budget,
-    or strategic planning topics.
+import os
+from dotenv import load_dotenv
+from azure.search.documents import SearchClient
+from semantic_kernel import Kernel
+from semantic_kernel.connectors.ai.open_ai import AzureChatCompletion
 
-    Parameters:
-        query (str): User input concerning defense policy matters.
+# Load environment variables
+load_dotenv()
+AZURE_SEARCH_SERVICE = os.getenv("AZURE_SEARCH_SERVICE")
+AZURE_SEARCH_KEY = os.getenv("AZURE_SEARCH_KEY")
+AZURE_SEARCH_INDEX = os.getenv("AZURE_SEARCH_INDEX")
+AZURE_SEARCH_ENDPOINT = f"https://{AZURE_SEARCH_SERVICE}.search.windows.net/"
 
-    Returns:
-        str: Policy analysis or statement.
-    """
-    # Static simulated response for demo purposes
-    response = f"""
-📘 Defense Policy Brief
+# Setup Azure Search Client
+search_client = SearchClient(
+    endpoint=AZURE_SEARCH_ENDPOINT,
+    index_name=AZURE_SEARCH_INDEX,
+    credential=AZURE_SEARCH_KEY
+)
 
-📝 Question:
-\"{query}\"
+# Prompt template for defense policy answers
+POLICY_PROMPT_TEMPLATE = """
+You are a senior AI defense policy advisor for NATO.
 
-💬 Summary:
-European defense budgets increased by an average of 12% in 2024, 
-marking the highest regional investment since 2008.
+Your job is to provide concise, evidence-based answers on defense budgets, national policies, alliances, and military investments.
 
-📈 Trends:
-- Increased NATO contributions.
-- Rising investment in cyber defense and drones.
-- Strategic reallocation from traditional to hybrid defense models.
+Only use the provided context below. Do NOT assume or fabricate data. If the information is not found, say:
+"No verified policy information is available at this time."
 
-📊 Source:
-🗂 European Defence Agency (EDA), 2024 Public Report.
+---
+Context:
+{context}
 
+---
+Question:
+{query}
+
+---
+Respond with a brief, factual and authoritative answer, using formal tone.
 """
-    return response.strip()
+
+# Setup Semantic Kernel
+kernel = Kernel()
+kernel.add_service(
+    AzureChatCompletion(
+        deployment_name=os.getenv("OPENAI_DEPLOYMENT"),
+        endpoint=os.getenv("OPENAI_ENDPOINT"),
+        api_key=os.getenv("OPENAI_API_KEY")
+    )
+)
+
+# Main function for policy agent
+async def policy_agent(query: str) -> str:
+    try:
+        results = search_client.search(query, top=5)
+        context_docs = [doc["content"] for doc in results]
+
+        if not context_docs:
+            return "📉 No relevant policy documents found."
+
+        context = "\n\n".join(context_docs[:3])  # limit to top 3 to reduce tokens
+        prompt = POLICY_PROMPT_TEMPLATE.format(query=query, context=context)
+
+        completion = await kernel.services.get(AzureChatCompletion).complete(prompt)
+        response = completion.get_final_result()
+
+        # Guardrail: handle fallback message
+        if "no verified policy" in response.lower():
+            return "⚠️ The answer could not be confirmed with the available documents."
+
+        return response
+    except Exception as e:
+        return f"❌ Policy advisor error: {e}"
+
