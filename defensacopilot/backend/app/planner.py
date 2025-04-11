@@ -1,35 +1,51 @@
-# planner.py
-# ----------------------------------------------------------------------------------
-# Query Planner - Routes queries to the most appropriate agent
-# Now includes live_intel_agent for real-time defense intelligence
-# ----------------------------------------------------------------------------------
+"""
+DefensaCopilot — Planner Module
+This module routes user queries to the appropriate specialized agent
+based on keywords and context. It supports real-time news via RSS,
+RAG, policy insights, misinformation checks, and threat detection.
 
-# planner.py — Modular Task Router for DefensaCopilot
+Author: DefenseCopilot Team
+"""
 
-# === Import AI agents ===
+# === Imports ===
 from agents.threat_agent import threat_agent
 from agents.policy_agent import policy_agent
 from agents.disinfo_agent import disinfo_agent
 from agents.rag_agent import rag_agent
-from agents.live_intel_agent import live_intel_agent  # ✅ NEW
+from agents.live_intel_agent import live_intel_agent  # 🔥 NEW live agent
 
-# === Intelligent router to determine which agent to activate ===
-async def plan_and_run(query: str) -> str:
-    lower_q = query.lower()
 
-    # 🧠 Dynamic intent classification by keyword patterns
-    if "fake news" in lower_q or "misinformation" in lower_q or "is it true" in lower_q:
-        return await disinfo_agent(query)
+# === Main Planning Function ===
+async def plan_and_run(query: str, kernel=None) -> str:
+    """
+    Determines the most appropriate agent to handle the user's query
+    and returns the agent's response.
 
-    elif any(term in lower_q for term in ["budget", "spending", "strategy", "policy", "defense plan"]):
-        return await policy_agent(query)
+    Args:
+        query (str): User input question or task
+        kernel (Kernel): Semantic Kernel instance used for LLM inference
 
-    elif any(term in lower_q for term in ["troop", "attack", "border", "invasion", "missile", "alert"]):
+    Returns:
+        str: Response from the selected agent
+    """
+    query_lower = query.strip().lower()
+
+    # ✅ Live News Agent (e.g. NATO activity, real-time events)
+    if any(k in query_lower for k in ["live", "breaking", "update", "nato", "real-time"]):
+        return await live_intel_agent(query, kernel)
+
+    # 🛡 Threat Detection Agent
+    elif any(k in query_lower for k in ["troop", "tank", "border", "attack", "drone", "movement"]):
         return await threat_agent(query)
 
-    elif any(term in lower_q for term in ["nato", "ukraine", "russia", "breaking news", "live", "real-time", "update", "situation"]):
-        return await live_intel_agent(query)  # ✅ NEW routing for live intelligence
+    # 💼 Defense Policy Agent
+    elif any(k in query_lower for k in ["policy", "budget", "spending", "defense law", "military reform"]):
+        return await policy_agent(query)
 
+    # ❌ Misinformation Check Agent
+    elif any(k in query_lower for k in ["fake", "hoax", "rumor", "is it true", "disinformation"]):
+        return await disinfo_agent(query)
+
+    # 📄 Default fallback — Retrieval-Augmented Generation
     else:
-        # Default fallback to document-grounded RAG agent
         return await rag_agent(query)
