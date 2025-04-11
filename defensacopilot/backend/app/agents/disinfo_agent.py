@@ -7,32 +7,76 @@
 # The agent receives a query and returns a structured response
 # simulating misinformation analysis based on a predefined template.
 
-async def disinfo_agent(query: str) -> str:
-    """
-    Simulates a misinformation analysis on the input query.
-    Returns a structured response with a confidence level and source.
-    
-    Parameters:
-        query (str): User question to analyze for potential disinformation.
-    
-    Returns:
-        str: Analysis report.
-    """
-    # Static simulation for demo purposes
-    response = f"""
-🕵️‍♂️ Disinformation Analysis Report
+from azure.search.documents import SearchClient
+from semantic_kernel.connectors.ai.open_ai import AzureChatCompletion
+from semantic_kernel import Kernel
+from dotenv import load_dotenv
+import os
 
-🔍 Claim analyzed:
-\"{query}\"
+# Load environment and Azure Search config
+load_dotenv()
+AZURE_SEARCH_SERVICE = os.getenv("AZURE_SEARCH_SERVICE")
+AZURE_SEARCH_KEY = os.getenv("AZURE_SEARCH_KEY")
+AZURE_SEARCH_INDEX = os.getenv("AZURE_SEARCH_INDEX")
+AZURE_SEARCH_ENDPOINT = f"https://{AZURE_SEARCH_SERVICE}.search.windows.net/"
 
-📊 Confidence Level: 78% likely to be misleading  
-📌 Verdict: ⚠️ Potential misinformation detected
+search_client = SearchClient(
+    endpoint=AZURE_SEARCH_ENDPOINT,
+    index_name=AZURE_SEARCH_INDEX,
+    credential=AZURE_SEARCH_KEY
+)
 
-🔗 Verified sources: None found  
-📁 Note: The claim does not appear in official bulletins or verified databases.
+# Professional analyst prompt with strong guardrails
+DISINFO_PROMPT_TEMPLATE = """
+You are an AI misinformation analyst working for a defense intelligence agency.
 
-📘 Recommendation:
-Cross-check with trusted media and official sources.
+Your job is to verify whether the following claim might be false, misleading, or lacking credible evidence. Use only the context provided.
 
+Respond ONLY based on the provided context. If no reliable information exists, respond: "No supporting evidence was found."
+
+---
+Context:
+{context}
+
+---
+Claim to analyze:
+{query}
+
+---
+Answer clearly and professionally in one paragraph.
 """
-    return response.strip()
+
+# Setup Semantic Kernel with Azure OpenAI
+kernel = Kernel()
+kernel.add_service(
+    AzureChatCompletion(
+        deployment_name=os.getenv("OPENAI_DEPLOYMENT"),
+        endpoint=os.getenv("OPENAI_ENDPOINT"),
+        api_key=os.getenv("OPENAI_API_KEY")
+    )
+)
+
+async def disinfo_agent(query: str) -> str:
+    # Step 1: Search documents related to the query
+    results = search_client.search(query, top=5)
+    context_docs = [doc["content"] for doc in results]
+
+    if not context_docs:
+        return "⚠️ No relevant documents found to verify this claim."
+
+    # Step 2: Prepare context and fill prompt
+    context = "\n\n".join(context_docs[:3])  # limit to top 3 for token safety
+    prompt = DISINFO_PROMPT_TEMPLATE.format(query=query, context=context)
+
+    # Step 3: Run through LLM
+    try:
+        completion = await kernel.services.get(AzureChatCompletion).complete(prompt)
+        response = completion.get_final_result()
+
+        # Step 4: Validate result
+        if "no supporting evidence" in response.lower():
+            return "🛡️ The claim could not be validated — no credible sources found."
+        return response
+    except Exception as e:
+        return f"❌ Error validating claim: {e}"
+
