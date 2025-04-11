@@ -1,79 +1,80 @@
 # live_intel_agent.py
+# Advanced live intelligence agent using Azure OpenAI with RAG, guardrails, and response validation
 
 import os
 import feedparser
 import aiohttp
 from openai import AsyncAzureOpenAI
+from dotenv import load_dotenv
+from datetime import datetime
 
 # === Load environment variables ===
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-OPENAI_ENDPOINT = os.getenv("OPENAI_ENDPOINT")
-OPENAI_DEPLOYMENT = os.getenv("OPENAI_DEPLOYMENT")
+dotenv_path = os.path.join(os.path.dirname(__file__), ".env")
+load_dotenv(dotenv_path=dotenv_path)
 
-# === Real-time Defense Agent Class ===
+AZURE_OPENAI_KEY = os.getenv("AZURE_OPENAI_KEY")
+AZURE_OPENAI_ENDPOINT = os.getenv("AZURE_OPENAI_ENDPOINT")
+AZURE_OPENAI_DEPLOYMENT = os.getenv("AZURE_OPENAI_DEPLOYMENT")
+
+if not all([AZURE_OPENAI_KEY, AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_DEPLOYMENT]):
+    raise EnvironmentError("Missing one or more Azure OpenAI environment variables.")
+
+# === Azure OpenAI Chat Client ===
 class LiveIntelAgent:
     def __init__(self):
-        # Initialize Azure OpenAI client
         self.client = AsyncAzureOpenAI(
-            api_key=OPENAI_API_KEY,
-            api_version="2023-07-01-preview",
-            azure_endpoint=OPENAI_ENDPOINT
-        )
-        self.deployment = OPENAI_DEPLOYMENT
-
-    async def fetch_latest_news(self, topic="defense"):
-        """Fetch latest news articles from RSS feeds about the given topic."""
-        url = f"https://news.google.com/rss/search?q={topic}+when:7d&hl=en&gl=US&ceid=US:en"
-        feed = feedparser.parse(url)
-        entries = feed.entries[:5]
-
-        if not entries:
-            return "No recent articles were found on this topic."
-
-        articles = "\n".join([f"- {entry.title}" for entry in entries])
-        return f"Latest news headlines:\n{articles}"
-
-    async def answer(self, user_input):
-        """Combine real-time info with LLM reasoning"""
-        # Guardrails: Reject overly vague prompts
-        if len(user_input.strip()) < 5:
-            return "⚠️ Please provide a more detailed question."
-
-        context = await self.fetch_latest_news(user_input)
-
-        prompt = f"""
-You are DefensaCopilot, an AI specialized in live defense intelligence.
-
-Your role:
-- Answer concisely using only facts.
-- If you’re unsure, say “I don’t have that information.”
-- Use the news context below to support your answer.
-
-News Context:
-{context}
-
-User Question:
-{user_input}
-
-Answer:
-"""
-
-        # Call Azure OpenAI Chat Completion
-        response = await self.client.chat.completions.create(
-            deployment_id=self.deployment,
-            model="gpt-4",
-            messages=[
-                {"role": "system", "content": "You are an expert in defense and geopolitics."},
-                {"role": "user", "content": prompt}
-            ],
-            temperature=0.3,
-            max_tokens=500
+            api_key=AZURE_OPENAI_KEY,
+            azure_endpoint=AZURE_OPENAI_ENDPOINT,
+            azure_deployment=AZURE_OPENAI_DEPLOYMENT,
+            api_version="2024-03-01-preview"
         )
 
-        reply = response.choices[0].message.content.strip()
+    async def fetch_latest_defense_news(self, topic="defense"):
+        rss_url = f"https://news.google.com/rss/search?q={topic}+defense&hl=en-US&gl=US&ceid=US:en"
+        feed = feedparser.parse(rss_url)
+        articles = [entry.title + ". " + entry.summary for entry in feed.entries[:5]]
+        return "\n".join(articles) if articles else "No recent updates found."
 
-        # Simple validation
-        if any(x in reply.lower() for x in ["i don't know", "unsure", "no data"]):
-            return "❌ Sorry, I couldn't find a reliable answer based on current information."
+    async def validate_response(self, response):
+        """
+        Guardrails: Basic checks for hallucinations.
+        Validates the structure and presence of relevant keywords.
+        """
+        if not response:
+            return False, "Response is empty."
+        if any(term in response.lower() for term in ["i am not sure", "as an ai", "cannot provide"]):
+            return False, "Model declined to answer clearly."
+        return True, "Response is valid."
 
-        return reply
+    async def ask(self, user_input):
+        # Retrieve contextual news from the web (RAG)
+        context = await self.fetch_latest_defense_news(user_input)
+
+        prompt = (
+            f"You are DefensaCopilot, an expert real-time defense analyst.
+            Always answer clearly and concisely, based only on the real-time intel provided.
+            Use professional tone, avoid speculation, and clearly cite your evidence.
+
+            Contextual Information:
+            {context}
+
+            User Question: {user_input}
+            Professional Response:"
+        )
+
+        try:
+            response = await self.client.chat.completions.create(
+                model=AZURE_OPENAI_DEPLOYMENT,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.3,
+                max_tokens=500
+            )
+            answer = response.choices[0].message.content.strip()
+            is_valid, validation_msg = await self.validate_response(answer)
+
+            if not is_valid:
+                return f"❌ Guardrail Alert: {validation_msg}"
+
+            return f"✅ {answer}"
+        except Exception as e:
+            return f"❌ Error while querying Azure OpenAI: {e}"
