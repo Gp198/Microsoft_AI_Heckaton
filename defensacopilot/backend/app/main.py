@@ -1,43 +1,55 @@
 # DefensaCopilot - Main Orchestrator
 
-import feedparser
-import requests
-from semantic_kernel import Kernel
-from semantic_kernel.connectors.ai.open_ai import AzureChatCompletion
+# main.py – DefensaCopilot: Centralized Live Intelligence Agent (Azure OpenAI + RAG)
+
 import os
-from datetime import datetime
+import asyncio
+from dotenv import load_dotenv
+from agents.live_intel_agent import LiveIntelAgent
 
-# === Load environment variables ===
-AZURE_API_KEY = os.getenv("OPENAI_API_KEY")
-AZURE_ENDPOINT = os.getenv("OPENAI_ENDPOINT")
-AZURE_DEPLOYMENT = os.getenv("OPENAI_DEPLOYMENT")
+# === Load .env file from explicit path ===
+env_path = "C:/Users/Utilizador/Documents/GitHub/Microsoft_AI_Heckaton/defensacopilot/backend/app/.env"
+load_dotenv(dotenv_path=env_path)
 
-# === Prompt Engineering (Advanced) ===
-INTEL_PROMPT = """
-You are a highly specialized military intelligence analyst.
-Your task is to provide reliable, fact-based, and concise answers about global defense activity.
+# === Azure OpenAI environment variables ===
+API_KEY = os.getenv("AZURE_OPENAI_API_KEY")
+ENDPOINT = os.getenv("AZURE_OPENAI_ENDPOINT")
+DEPLOYMENT = os.getenv("AZURE_OPENAI_DEPLOYMENT")
 
-You must:
-- Use the retrieved context below as your source of truth.
-- If uncertain, clearly say you are not confident.
-- Never make up facts or speculate.
-- Suggest verification sources if applicable.
+if not all([API_KEY, ENDPOINT, DEPLOYMENT]):
+    raise EnvironmentError("\n❌ Missing Azure OpenAI credentials. Please check your .env file")
 
-### Context:
-{{$context}}
+# === Initialize live intelligence agent ===
+agent = LiveIntelAgent(
+    api_key=API_KEY,
+    endpoint=ENDPOINT,
+    deployment=DEPLOYMENT
+)
 
-### User question:
-{{$input}}
+# === CLI interaction ===
+async def main():
+    print("\n\U0001F6E1 Welcome to DefensaCopilot – your live defense intelligence assistant")
+    print("Type your defense-related question (or 'exit' to quit):")
 
-Provide a response in fluent, formal English and avoid hallucinations.
-"""
+    while True:
+        query = input("\n\U0001F4AC Question: ")
+        if query.strip().lower() in ["exit", "quit"]:
+            print("\U0001F44B Goodbye. Stay safe.")
+            break
+        try:
+            response = await agent.answer(query)
+            print(f"\n\U0001F916 Response:\n{response}")
+        except Exception as e:
+            print(f"❌ Agent error: {e}")
 
-# === RAG: Fetch live defense updates ===
-def get_live_context():
-    feed_urls = [
-        "https://www.nato.int/cps/en/natohq/news.xml",  # NATO RSS
-        "https://www.defense.gov/Newsroom/News/Transcripts/rss.xml"
-    ]
+if __name__ == "__main__":
+    if asyncio.get_event_loop().is_running():
+        import nest_asyncio
+        nest_asyncio.apply()
+        asyncio.ensure_future(main())
+    else:
+        asyncio.run(main())
+
     
     context_snippets = []
     for url in feed_urls:
