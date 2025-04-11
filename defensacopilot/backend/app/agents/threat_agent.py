@@ -4,36 +4,78 @@
 # geopolitical escalations, or strategic alerts.
 # ---------------------------------------------------------------------
 
-async def threat_agent(query: str) -> str:
-    """
-    Simulates a response from a threat intelligence system based on
-    geopolitical or military movement inquiries.
+import os
+from dotenv import load_dotenv
+from azure.search.documents import SearchClient
+from semantic_kernel import Kernel
+from semantic_kernel.connectors.ai.open_ai import AzureChatCompletion
 
-    Parameters:
-        query (str): User input regarding threats, attacks, borders, or troops.
+# Load environment variables
+load_dotenv()
+AZURE_SEARCH_SERVICE = os.getenv("AZURE_SEARCH_SERVICE")
+AZURE_SEARCH_KEY = os.getenv("AZURE_SEARCH_KEY")
+AZURE_SEARCH_INDEX = os.getenv("AZURE_SEARCH_INDEX")
+AZURE_SEARCH_ENDPOINT = f"https://{AZURE_SEARCH_SERVICE}.search.windows.net/"
 
-    Returns:
-        str: Threat alert with simulated intelligence content.
-    """
-    # Simulated threat analysis output
-    response = f"""
-🚨 Threat Intelligence Bulletin
+# Initialize Azure Search
+search_client = SearchClient(
+    endpoint=AZURE_SEARCH_ENDPOINT,
+    index_name=AZURE_SEARCH_INDEX,
+    credential=AZURE_SEARCH_KEY
+)
 
-📝 Inquiry:
-\"{query}\"
+# Prompt template for threat intelligence
+THREAT_PROMPT_TEMPLATE = """
+You are an AI military threat intelligence analyst.
 
-📍 Location:
-Eastern border region near NATO-aligned territories.
+Your task is to assess the level of geopolitical or military threat related to the user's query, based strictly on the context provided.
 
-🧠 Assessment:
-Increased troop mobilization and armor transport detected.
-Satellite imagery and open-source intelligence (OSINT) confirm unusual patterns.
+Do not speculate or generate data not found in the context.
+If no relevant intelligence is found, reply:
+"No threat indicators were detected in the available intelligence."
 
-🔺 Threat Level: HIGH  
-🕒 Last verified activity: 12 hours ago
+---
+Context:
+{context}
 
-📁 Source:
-Allied Surveillance Network & NATO SITREP #2893
+---
+Threat Inquiry:
+{query}
 
+---
+Respond with a short tactical summary, specifying the nature of the threat, location, and severity level.
 """
-    return response.strip()
+
+# Initialize Semantic Kernel
+kernel = Kernel()
+kernel.add_service(
+    AzureChatCompletion(
+        deployment_name=os.getenv("OPENAI_DEPLOYMENT"),
+        endpoint=os.getenv("OPENAI_ENDPOINT"),
+        api_key=os.getenv("OPENAI_API_KEY")
+    )
+)
+
+# Threat agent function
+async def threat_agent(query: str) -> str:
+    try:
+        results = search_client.search(query, top=5)
+        context_docs = [doc["content"] for doc in results]
+
+        if not context_docs:
+            return "⚠️ No intelligence indicators were found."
+
+        context = "\n\n".join(context_docs[:3])
+        prompt = THREAT_PROMPT_TEMPLATE.format(query=query, context=context)
+
+        completion = await kernel.services.get(AzureChatCompletion).complete(prompt)
+        response = completion.get_final_result()
+
+        # Basic guardrail check
+        if "no threat indicators" in response.lower():
+            return "🛡️ No credible threat detected in the current intelligence."
+
+        return response
+    except Exception as e:
+        return f"❌ Threat agent error: {e}"
+
