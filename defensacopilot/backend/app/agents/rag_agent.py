@@ -7,59 +7,77 @@
 
 import os
 from dotenv import load_dotenv
-from azure.core.credentials import AzureKeyCredential
 from azure.search.documents import SearchClient
-from pathlib import Path
+from semantic_kernel import Kernel
+from semantic_kernel.connectors.ai.open_ai import AzureChatCompletion
 
-# === Load environment variables from .env ===
-load_dotenv(dotenv_path=Path("C:/Users/Utilizador/Documents/GitHub/Microsoft_AI_Heckaton/defensacopilot/backend/app/.env"))
-
+# === Load environment variables ===
+load_dotenv()
 AZURE_SEARCH_SERVICE = os.getenv("AZURE_SEARCH_SERVICE")
 AZURE_SEARCH_KEY = os.getenv("AZURE_SEARCH_KEY")
 AZURE_SEARCH_INDEX = os.getenv("AZURE_SEARCH_INDEX")
+AZURE_SEARCH_ENDPOINT = f"https://{AZURE_SEARCH_SERVICE}.search.windows.net/"
 
-AZURE_SEARCH_ENDPOINT = f"https://{AZURE_SEARCH_SERVICE}.search.windows.net"
-
-# === Initialize Azure Cognitive Search Client ===
+# === Initialize Azure Search Client ===
 search_client = SearchClient(
     endpoint=AZURE_SEARCH_ENDPOINT,
     index_name=AZURE_SEARCH_INDEX,
-    credential=AzureKeyCredential(AZURE_SEARCH_KEY)
+    credential=AZURE_SEARCH_KEY
 )
 
-# === RAG Agent logic ===
-async def rag_agent(query: str, top_k: int = 3) -> str:
-    """
-    Performs a semantic search over Azure Cognitive Search index,
-    retrieving the most relevant document snippets for the user query.
+# === Prompt template ===
+RAG_PROMPT_TEMPLATE = """
+You are an AI intelligence analyst.
 
-    Parameters:
-        query (str): The user's input question.
-        top_k (int): Number of top documents to retrieve (default: 3)
+Your task is to answer the user's question using ONLY the information contained in the documents provided as context.
 
-    Returns:
-        str: Formatted response with sources and content excerpts.
-    """
-    try:
-        results = search_client.search(search_text=query, top=top_k)
-        hits = [doc["content"] for doc in results if "content" in doc]
+Do not guess or invent data. If the answer is not found in the context, respond clearly:
+"No reliable information is available to answer this question."
 
-        if not hits:
-            return "⚠️ No relevant documents were found in the knowledge base."
+---
+Context:
+{context}
 
-        response = f"""
-📚 Document Intelligence Report
+---
+Question:
+{query}
 
-🧭 Question:
-\"{query}\"
-
-📄 Top {len(hits)} Retrieved Snippets:
+---
+Provide a concise, well-structured answer using neutral and informative language.
 """
-        for i, content in enumerate(hits, 1):
-            snippet = content[:500].replace("\n", " ")  # Trim & format
-            response += f"\n🔹 Snippet {i}:\n{snippet}\n"
 
-        return response.strip()
+# === Initialize Semantic Kernel ===
+kernel = Kernel()
+kernel.add_service(
+    AzureChatCompletion(
+        deployment_name=os.getenv("OPENAI_DEPLOYMENT"),
+        endpoint=os.getenv("OPENAI_ENDPOINT"),
+        api_key=os.getenv("OPENAI_API_KEY")
+    )
+)
 
+# === RAG agent ===
+async def rag_agent(query: str) -> str:
+    try:
+        # Search relevant documents from Azure Search
+        results = search_client.search(search_text=query, top=5)
+        context_docs = [doc["content"] for doc in results]
+
+        if not context_docs:
+            return "⚠️ No documents found that match the question."
+
+        # Build the prompt using top documents
+        context = "\n\n".join(context_docs[:3])
+        prompt = RAG_PROMPT_TEMPLATE.format(query=query, context=context)
+
+        # Get completion from Azure OpenAI
+        completion = await kernel.services.get(AzureChatCompletion).complete(prompt)
+        response = completion.get_final_result()
+
+        # Guardrail validation
+        if "no reliable information" in response.lower():
+            return "📭 No verifiable information available to answer this question."
+
+        return response
     except Exception as e:
-        return f"❌ Error while performing RAG search: {e}"
+        return f"❌ Error retrieving intelligence: {e}"
