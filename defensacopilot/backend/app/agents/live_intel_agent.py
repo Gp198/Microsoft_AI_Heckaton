@@ -1,38 +1,57 @@
-# live_intel_agent.py — Live Defense Intelligence Agent with Web Context
-
 import feedparser
-from semantic_kernel.kernel import Kernel
+from semantic_kernel import Kernel
+from semantic_kernel.connectors.ai.open_ai import AzureChatCompletion
 
-# === Live Intelligence Agent ===
-async def run_live_intel_agent(query: str, kernel: Kernel) -> str:
+# NATO RSS feed (pode adicionar mais)
+RSS_FEED_URL = "https://www.nato.int/cps/en/natolive/news.rss"
+
+# === Coleta notícias recentes ===
+def fetch_recent_news(limit=5):
     try:
-        # RSS feeds for defense-related news (you can add more sources)
-        rss_feeds = [
-            "https://www.nato.int/cps/en/natolive/news_rss.htm",
-            "https://feeds.bbci.co.uk/news/world/rss.xml",
-            "https://www.defense.gov/Newsroom/News/Transcripts/"  # adjust if needed
+        feed = feedparser.parse(RSS_FEED_URL)
+        if not feed.entries:
+            return "No live headlines found from NATO."
+
+        entries = []
+        for entry in feed.entries[:limit]:
+            title = entry.get("title", "No title")
+            summary = entry.get("summary", "")
+            link = entry.get("link", "")
+            entries.append(f"📰 {title}\n{summary}\n🔗 {link}")
+
+        return "\n\n".join(entries)
+    except Exception as e:
+        return f"Error fetching news: {e}"
+
+# === Agente de conversa com contexto em tempo real ===
+async def live_intel_agent(query: str, kernel: Kernel) -> str:
+    try:
+        if kernel is None:
+            return "⚠️ Kernel not initialized."
+
+        # Coleta headlines atualizadas
+        headlines = fetch_recent_news()
+
+        # Define mensagens estilo chat
+        messages = [
+            {
+                "role": "system",
+                "content": (
+                    "You are a defense analyst AI who provides clear, concise, and helpful answers "
+                    "based only on the latest NATO updates. Do not hallucinate. If no information is found, say so.\n\n"
+                    f"Live Headlines:\n{headlines}"
+                )
+            },
+            {
+                "role": "user",
+                "content": query
+            }
         ]
 
-        # Extract entries from feeds
-        all_entries = []
-        for url in rss_feeds:
-            feed = feedparser.parse(url)
-            all_entries.extend(feed.entries[:5])  # Limit for performance
-
-        # Concatenate headlines and summaries
-        text_blob = "\n".join([f"{entry.title}: {entry.summary}" for entry in all_entries])
-
-        # Format the final prompt
-        prompt = (
-            f"You are an intelligence officer. Based on the news excerpts below, respond professionally and concisely to the query.\n"
-            f"News Excerpts:\n{text_blob}\n"
-            f"User Question: {query}\n"
-            f"Answer:"
-        )
-
-        # Use the correct service_id that was registered in main.py
-        completion = await kernel.get_service("azure-openai").complete(prompt=prompt)
-        return completion
+        # Executa chat com Azure OpenAI
+        chat_service = kernel.get_service("azure-openai")
+        result = await chat_service.complete_chat(messages)
+        return result.strip()
 
     except Exception as e:
-        return f"❌ Live intelligence agent failed: {e}"
+        return f"❌ Live chat agent failed: {e}"
