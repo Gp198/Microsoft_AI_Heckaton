@@ -1,24 +1,31 @@
-# DefensaCopilot - Setup Inicial (Semantic Kernel + Azure AI)
-
-# Requisitos: semantic-kernel, azure-search-documents, openai, azure-functions, python-dotenv
-# Instala com: pip install semantic-kernel openai azure-search-documents azure-functions python-dotenv
+# === DefensaCopilot - Main Orchestrator ===
+# Powered by Azure OpenAI + Semantic Kernel + Modular Planning
 
 import os
+import asyncio
 from dotenv import load_dotenv
 from semantic_kernel import Kernel
-from semantic_kernel.connectors.ai.open_ai import OpenAITextCompletion
+from semantic_kernel.connectors.ai.open_ai import AzureChatCompletion
 
-# Carregar variáveis de ambiente
-load_dotenv()
+from planner import plan_and_run
+
+# === Load environment variables from .env ===
+env_path = os.path.join(os.path.dirname(__file__), ".env")
+load_dotenv(dotenv_path=env_path)
+
+# === Get OpenAI Azure credentials from environment ===
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 OPENAI_ENDPOINT = os.getenv("OPENAI_ENDPOINT")
 OPENAI_DEPLOYMENT = os.getenv("OPENAI_DEPLOYMENT")
 
-# Inicializar Semantic Kernel com Azure OpenAI
+# === Validate that required variables are available ===
+if not all([OPENAI_API_KEY, OPENAI_ENDPOINT, OPENAI_DEPLOYMENT]):
+    raise EnvironmentError("❌ ERROR: Missing Azure OpenAI environment variables.")
+
+# === Initialize Semantic Kernel with AzureChatCompletion ===
 kernel = Kernel()
-kernel.add_text_completion_service(
-    "azure-openai",
-    OpenAITextCompletion(
+kernel.add_service(
+    AzureChatCompletion(
         service_id="azure-openai",
         deployment_name=OPENAI_DEPLOYMENT,
         endpoint=OPENAI_ENDPOINT,
@@ -26,32 +33,29 @@ kernel.add_text_completion_service(
     )
 )
 
-# Definir planner simples
-async def plan_and_run(query: str) -> str:
-    if "fake news" in query.lower():
-        return await disinfo_agent(query)
-    elif any(k in query.lower() for k in ["troop", "tank", "border", "attack"]):
-        return await threat_agent(query)
-    elif any(k in query.lower() for k in ["policy", "defense budget", "spending"]):
-        return await policy_agent(query)
-    else:
-        return "I'm not sure how to answer that. Please try rephrasing."
+# === Main application loop ===
+async def main():
+    print("\n🛡 Welcome to DefensaCopilot — your AI-powered defense assistant.")
+    print("Type your defense-related question below (or 'exit' to quit):\n")
 
-# Agente simulado 1: Ameaça
-async def threat_agent(query: str) -> str:
-    return "Simulated analysis: Increased troop movement observed near the eastern border. Source: NATO Report 2023."
+    while True:
+        try:
+            query = input("🌟 Question: ")
+            if query.strip().lower() in ["exit", "quit"]:
+                print("👋 Goodbye. Stay safe on your mission.")
+                break
 
-# Agente simulado 2: Políticas de defesa
-async def policy_agent(query: str) -> str:
-    return "Defense budgets have increased by 12% in 2024 among EU countries. Source: EDA 2024 Data."
+            response = await plan_and_run(query, kernel=kernel)
+            print("\n🤖 Agent Response:\n" + response + "\n")
 
-# Agente simulado 3: Verificação de desinformação
-async def disinfo_agent(query: str) -> str:
-    return "Claim: 'Country X is invading Country Y' - No credible sources confirm this. Marked as potential misinformation."
+        except Exception as e:
+            print(f"❌ Runtime error: {e}\n")
 
-# Exemplo de execução
+# === Run with async support (for Jupyter fallback) ===
 if __name__ == "__main__":
-    import asyncio
-    user_input = input("Pergunta: ")
-    result = asyncio.run(plan_and_run(user_input))
-    print("\nResposta do DefensaCopilot:\n", result)
+    if asyncio.get_event_loop().is_running():
+        import nest_asyncio
+        nest_asyncio.apply()
+        asyncio.ensure_future(main())
+    else:
+        asyncio.run(main())
