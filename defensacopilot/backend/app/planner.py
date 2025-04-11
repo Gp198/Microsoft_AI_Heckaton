@@ -1,37 +1,46 @@
-# planner.py — Modular Dispatcher for DefensaCopilot Agents
+# planner.py
+# This module sets up and executes a FunctionCallingStepwisePlanner using Semantic Kernel v1.28.0
 
-import asyncio
-from semantic_kernel import KernelFunctionReference
-from agents.disinfo_agent import disinfo_agent
-from agents.policy_agent import policy_agent
-from agents.threat_agent import threat_agent
-from agents.live_intel_agent import live_intel_agent
+import semantic_kernel as sk
+from semantic_kernel.planners import FunctionCallingStepwisePlanner
+from semantic_kernel.kernel import Kernel
 
-# === Task planner and router ===
-async def plan_and_run(question: str, kernel):
+# === Initialize the planner ===
+def initialize_planner(kernel: Kernel) -> FunctionCallingStepwisePlanner:
     """
-    Routes the user question to the appropriate agent based on keywords.
+    Initializes the FunctionCallingStepwisePlanner using the provided kernel.
 
     Args:
-        question (str): The user-provided question.
-        kernel: The Semantic Kernel instance.
+        kernel (Kernel): The configured Semantic Kernel instance.
 
     Returns:
-        str: The response from the selected agent.
+        FunctionCallingStepwisePlanner: A planner ready to create and execute plans.
     """
-    question_lower = question.lower()
+    return FunctionCallingStepwisePlanner(kernel)
 
+# === Plan and run the user's request ===
+async def plan_and_run(kernel: Kernel, user_input: str) -> str:
+    """
+    Creates and executes a plan based on user input using Semantic Kernel planner.
+
+    Args:
+        kernel (Kernel): The configured Semantic Kernel instance.
+        user_input (str): The natural language instruction from the user.
+
+    Returns:
+        str: The final result from the planner execution or an error message.
+    """
     try:
-        if "live" in question_lower or "update" in question_lower:
-            return await live_intel_agent(question)
-        elif any(kw in question_lower for kw in ["disinfo", "misinfo", "propaganda"]):
-            return await disinfo_agent(question, kernel)
-        elif any(kw in question_lower for kw in ["policy", "regulation", "legal"]):
-            return await policy_agent(question, kernel)
-        elif any(kw in question_lower for kw in ["threat", "attack", "risk"]):
-            return await threat_agent(question, kernel)
-        else:
-            return "🤔 I'm not sure which agent should handle this question. Please rephrase or provide more context."
+        # Create planner instance
+        planner = initialize_planner(kernel)
+
+        # Generate plan based on user input
+        plan = await planner.create_plan_async(user_input)
+
+        # Execute the generated plan
+        result = await planner.execute_plan_async(plan)
+
+        return str(result)
 
     except Exception as e:
-        return f"❌ Agent execution failed: {e}"
+        return f"❌ Planner failed: {e}"
