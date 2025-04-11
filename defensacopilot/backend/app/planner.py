@@ -4,53 +4,32 @@
 # Now includes live_intel_agent for real-time defense intelligence
 # ----------------------------------------------------------------------------------
 
+# planner.py — Modular Task Router for DefensaCopilot
+
+# === Import AI agents ===
 from agents.threat_agent import threat_agent
 from agents.policy_agent import policy_agent
 from agents.disinfo_agent import disinfo_agent
 from agents.rag_agent import rag_agent
 from agents.live_intel_agent import live_intel_agent  # ✅ NEW
 
-# === Main dispatcher ===
+# === Intelligent router to determine which agent to activate ===
 async def plan_and_run(query: str) -> str:
-    """
-    Routes user input to the correct agent based on keywords and topic.
+    lower_q = query.lower()
 
-    Parameters:
-        query (str): User input question.
-
-    Returns:
-        str: Agent response.
-    """
-
-    query_lower = query.lower()
-
-    # === Real-time intelligence trigger ===
-    if any(k in query_lower for k in [
-        "nato update", "recent event", "latest news", "situation report", 
-        "real-time", "current threat", "live", "now", "today"
-    ]):
-        return await live_intel_agent(query)
-
-    # === Disinformation analysis ===
-    elif "fake news" in query_lower or "misinformation" in query_lower:
+    # 🧠 Dynamic intent classification by keyword patterns
+    if "fake news" in lower_q or "misinformation" in lower_q or "is it true" in lower_q:
         return await disinfo_agent(query)
 
-    # === Threat analysis ===
-    elif any(k in query_lower for k in ["troop", "tank", "border", "attack", "escalation"]):
-        return await threat_agent(query)
-
-    # === Defense policy ===
-    elif any(k in query_lower for k in ["policy", "budget", "investment", "spending", "treaty"]):
+    elif any(term in lower_q for term in ["budget", "spending", "strategy", "policy", "defense plan"]):
         return await policy_agent(query)
 
-    # === RAG for general document intelligence ===
-    elif any(k in query_lower for k in ["report", "intel", "sipri", "eda", "capability"]):
-        return await rag_agent(query)
+    elif any(term in lower_q for term in ["troop", "attack", "border", "invasion", "missile", "alert"]):
+        return await threat_agent(query)
 
-    # === Default fallback ===
+    elif any(term in lower_q for term in ["nato", "ukraine", "russia", "breaking news", "live", "real-time", "update", "situation"]):
+        return await live_intel_agent(query)  # ✅ NEW routing for live intelligence
+
     else:
-        return (
-            "🤔 I'm not sure how to answer that. "
-            "Try asking about real-time threats, defense budgets, or verified reports."
-        )
-
+        # Default fallback to document-grounded RAG agent
+        return await rag_agent(query)
