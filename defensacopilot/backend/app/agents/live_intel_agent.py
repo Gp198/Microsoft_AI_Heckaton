@@ -1,11 +1,13 @@
+# live_intel_agent.py — Conversational Agent with Live Defense Intelligence
+
 import feedparser
 from semantic_kernel import Kernel
 from semantic_kernel.connectors.ai.open_ai import AzureChatCompletion
 
-# NATO RSS feed (pode adicionar mais)
-RSS_FEED_URL = "https://www.nato.int/cps/en/natolive/news.rss"
+# RSS Feed URL (can be expanded with more sources)
+RSS_FEED_URL = "https://www.nato.int/cps/en/natolive/news_rss.xml"
 
-# === Coleta notícias recentes ===
+# === Fetch latest NATO news headlines ===
 def fetch_recent_news(limit=5):
     try:
         feed = feedparser.parse(RSS_FEED_URL)
@@ -23,23 +25,26 @@ def fetch_recent_news(limit=5):
     except Exception as e:
         return f"Error fetching news: {e}"
 
-# === Agente de conversa com contexto em tempo real ===
+# === Live Intel Conversational Agent ===
 async def live_intel_agent(query: str, kernel: Kernel) -> str:
     try:
         if kernel is None:
             return "⚠️ Kernel not initialized."
 
-        # Coleta headlines atualizadas
+        # Retrieve latest headlines for context
         headlines = fetch_recent_news()
 
-        # Define mensagens estilo chat
+        # Construct a system message with guardrails and professional tone
         messages = [
             {
                 "role": "system",
                 "content": (
-                    "You are a defense analyst AI who provides clear, concise, and helpful answers "
-                    "based only on the latest NATO updates. Do not hallucinate. If no information is found, say so.\n\n"
-                    f"Live Headlines:\n{headlines}"
+                    "You are a professional defense intelligence analyst."
+                    " Use ONLY the provided news headlines below to answer the user's question."
+                    " If the answer cannot be determined from the headlines, say:"
+                    " 'There is no confirmed update regarding this topic at this time.'"
+                    " Avoid speculation or assumptions."
+                    f"\n\nLatest NATO Headlines:\n{headlines}"
                 )
             },
             {
@@ -48,10 +53,10 @@ async def live_intel_agent(query: str, kernel: Kernel) -> str:
             }
         ]
 
-        # Executa chat com Azure OpenAI
-        chat_service = kernel.get_service("azure-openai")
+        # Execute chat completion
+        chat_service = kernel.get_service(AzureChatCompletion)
         result = await chat_service.complete_chat(messages)
         return result.strip()
 
     except Exception as e:
-        return f"❌ Live chat agent failed: {e}"
+        return f"❌ Live intelligence agent failed: {e}"
