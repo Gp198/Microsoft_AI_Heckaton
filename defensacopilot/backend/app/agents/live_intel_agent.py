@@ -1,53 +1,91 @@
-import feedparser
-from datetime import datetime
+# live_intel_agent.py — Real-time NATO News Agent with RSS + Azure OpenAI
 
-# === Professional System Prompt for Live Intel Agent ===
-SYSTEM_PROMPT = (
-    "You are DefensaCopilot, a real-time defense intelligence advisor. "
-    "Your mission is to provide concise, accurate updates from reliable open sources, such as NATO or globally trusted defense news. "
-    "Avoid speculation, cite sources clearly, and always indicate if the information is based on available public reports. "
-    "Never fabricate information and do not reference unknown or unverifiable sources."
+import os
+import feedparser
+import asyncio
+from datetime import datetime
+from dotenv import load_dotenv
+from openai import AsyncAzureOpenAI, RateLimitError, OpenAIError
+
+# === Load environment variables ===
+env_path = os.path.join(os.path.dirname(__file__), "../.env")
+load_dotenv(dotenv_path=env_path)
+
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+OPENAI_ENDPOINT = os.getenv("OPENAI_ENDPOINT")
+OPENAI_DEPLOYMENT = os.getenv("OPENAI_DEPLOYMENT")
+
+# === Init Azure OpenAI Client ===
+client = AsyncAzureOpenAI(
+    api_key=OPENAI_API_KEY,
+    azure_endpoint=OPENAI_ENDPOINT,
+    api_version="2024-02-15-preview",
 )
 
-# === RSS Feed Sources (can be expanded with more) ===
+# === Trusted NATO-related feeds ===
 RSS_FEEDS = [
-    "https://www.nato.int/cps/en/natolive/news.htm?format=rss",  # NATO Official
-    "https://www.defensenews.com/arc/outboundfeeds/rss/category/news/",  # DefenseNews
-    "https://www.armyrecognition.com/rss/armyrecognition_news.xml",  # Army Recognition
+    "https://www.nato.int/cps/en/natolive/news_rss.xml",
+    "https://feeds.bbci.co.uk/news/world/rss.xml",
+    "https://rss.nytimes.com/services/xml/rss/nyt/World.xml",
+    "https://www.reutersagency.com/feed/?best-topics=defence&post_type=best",
+    "https://apnews.com/rss"
 ]
 
-def fetch_latest_defense_news(limit=5):
-    """
-    Fetches the latest defense-related news from trusted RSS feeds.
-    Returns a list of formatted strings with title and link.
-    """
-    headlines = []
-    for feed_url in RSS_FEEDS:
-        try:
-            feed = feedparser.parse(feed_url)
-            for entry in feed.entries[:limit]:
+# === Fetch latest NATO/defense-related news ===
+def fetch_live_news(limit=5):
+    entries = []
+    for url in RSS_FEEDS:
+        feed = feedparser.parse(url)
+        for entry in feed.entries:
+            if "nato" in entry.title.lower() or "defense" in entry.title.lower():
                 published = entry.get("published", "")
-                title = entry.get("title", "[No Title]")
-                link = entry.get("link", "")
-                summary = entry.get("summary", "")
-                
-                formatted_entry = f"\n📰 {title}\n🔗 {link}"
-                if published:
-                    formatted_entry += f"\n📅 Published: {published}"
-                headlines.append(formatted_entry)
-        except Exception as e:
-            headlines.append(f"⚠️ Failed to parse feed {feed_url}: {e}")
+                entries.append(f"- {entry.title.strip()} ({published})\n{entry.link}")
+                if len(entries) >= limit:
+                    break
+        if len(entries) >= limit:
+            break
+    return entries if entries else ["No live NATO-related news found at this time."]
 
-    return headlines[:limit]
+# === System-level prompt with safety ===
+system_prompt = (
+    "You are DefensaCopilot, an expert defense intelligence AI. Always base answers strictly on factual, verifiable information. "
+    "Do not speculate or hallucinate. If unsure, say 'I cannot confirm this information at this time.'"
+)
 
-def get_live_intel_response():
-    """
-    Core agent method to generate the real-time defense response from RSS feeds.
-    """
-    context_snippets = fetch_latest_defense_news()
-    return "\n\n".join(context_snippets)
+# === Query Azure OpenAI with real-time context ===
+async def query_with_live_context(user_question: str):
+    # 1. Get current defense headlines
+    context_snippets = fetch_live_news(limit=5)
+    context_block = "\n\n".join(context_snippets)
 
-# Optional: Direct test method
+    # 2. Build prompt with current context
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": f"Here is today's defense intelligence context:\n{context_block}\n\nUser question: {user_question}"},
+    ]
+
+    # 3. Call Azure OpenAI with error handling
+    try:
+        response = await client.chat.completions.create(
+            model=OPENAI_DEPLOYMENT,
+            messages=messages,
+            temperature=0.4,
+            max_tokens=700,
+        )
+        return response.choices[0].message.content.strip()
+
+    except RateLimitError:
+        return "⏳ Rate limit hit. Please wait and try again."
+    except OpenAIError as e:
+        return f"❌ OpenAI Error: {e}"
+    except Exception as e:
+        return f"❌ Unexpected error: {e}"
+
+# === For test use ===
 if __name__ == "__main__":
-    print("\n📡 Fetching real-time defense updates...\n")
-    print(get_live_intel_response())
+    async def run():
+        question = input("Ask DefensaCopilot: ")
+        response = await query_with_live_context(question)
+        print("\n🛰️ Response:\n", response)
+
+    asyncio.run(run())
