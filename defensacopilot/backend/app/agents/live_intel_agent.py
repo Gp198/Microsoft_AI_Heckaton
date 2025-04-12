@@ -5,11 +5,11 @@ from datetime import datetime, timedelta
 
 # Top reputable military/geopolitical sources
 RSS_FEEDS = [
-    "https://www.nato.int/cps/en/natohq/news_rss.xml",
-    "https://www.reuters.com/rssFeed/topNews",
+    "https://www.nato.int/cps/en/natohq/106110.html",
+    "https://www.reuters.com/live/",
     "https://feeds.bbci.co.uk/news/world/rss.xml",
     "https://www.defense.gov/DesktopModules/ArticleCS/RSS.ashx?ContentType=1",
-    "https://www.dw.com/en/top-stories/s-9097/rss",
+    "https://www.dw.com/pt-br/guerra-na-ucr%C3%A2nia/t-60942474",
 ]
 
 def fetch_live_news_snippets(limit: int = 3) -> list[str]:
