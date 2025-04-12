@@ -1,64 +1,61 @@
-# embedding_loader.py - Carregador de documentos para FAISS (txt, csv, pdf)
+# embedding_loader.py — Load and embed documents (txt, pdf, csv) to FAISS index
 
 import os
 import pickle
 import faiss
 import numpy as np
-import pandas as pd
 from sentence_transformers import SentenceTransformer
-from PyPDF2 import PdfReader
+from langchain.document_loaders import TextLoader, PyPDFLoader, CSVLoader
+from langchain.text_splitter import RecursiveCharacterTextSplitter
 
-DOCUMENTS_FOLDER = "docs"
-FAISS_INDEX_PATH = "faiss_index/index.faiss"
-DOCS_PATH = "faiss_index/docs.pkl"
+# === Config ===
+DATA_DIR = "../data"
+INDEX_PATH = os.path.join(DATA_DIR, "index.faiss")
+DOCS_PATH = os.path.join(DATA_DIR, "docs.pkl")
+CHUNK_SIZE = 500
+CHUNK_OVERLAP = 100
+SUPPORTED_EXTENSIONS = [".txt", ".pdf", ".csv"]
 
-os.makedirs("faiss_index", exist_ok=True)
+# === Load documents ===
+def load_documents(directory: str):
+    documents = []
+    for file in os.listdir(directory):
+        path = os.path.join(directory, file)
+        ext = os.path.splitext(file)[-1].lower()
+        if ext not in SUPPORTED_EXTENSIONS:
+            continue
+        try:
+            if ext == ".txt":
+                loader = TextLoader(path)
+            elif ext == ".pdf":
+                loader = PyPDFLoader(path)
+            elif ext == ".csv":
+                loader = CSVLoader(path)
+            docs = loader.load()
+            documents.extend(docs)
+        except Exception as e:
+            print(f"⚠️ Failed to load {file}: {e}")
+    return documents
 
-model = SentenceTransformer("all-MiniLM-L6-v2")
-documents = []
-embeddings = []
+# === Embed and index ===
+def build_faiss_index(docs):
+    text_splitter = RecursiveCharacterTextSplitter(chunk_size=CHUNK_SIZE, chunk_overlap=CHUNK_OVERLAP)
+    chunks = text_splitter.split_documents(docs)
 
-# --- Funções de leitura ---
+    texts = [chunk.page_content for chunk in chunks]
+    model = SentenceTransformer("all-MiniLM-L6-v2")
+    embeddings = model.encode(texts, show_progress_bar=True)
 
-def read_txt(path):
-    with open(path, "r", encoding="utf-8") as f:
-        return f.read()
+    index = faiss.IndexFlatL2(embeddings.shape[1])
+    index.add(np.array(embeddings).astype("float32"))
 
-def read_csv(path):
-    df = pd.read_csv(path)
-    return "\n".join(df.astype(str).apply(lambda row: " | ".join(row), axis=1))
+    with open(DOCS_PATH, "wb") as f:
+        pickle.dump(texts, f)
+    faiss.write_index(index, INDEX_PATH)
+    print(f"✅ Indexed {len(texts)} text chunks.")
 
-def read_pdf(path):
-    reader = PdfReader(path)
-    return "\n".join([page.extract_text() for page in reader.pages if page.extract_text()])
-
-# --- Carregamento dos ficheiros ---
-
-for file in os.listdir(DOCUMENTS_FOLDER):
-    file_path = os.path.join(DOCUMENTS_FOLDER, file)
-    content = ""
-    if file.endswith(".txt"):
-        content = read_txt(file_path)
-    elif file.endswith(".csv"):
-        content = read_csv(file_path)
-    elif file.endswith(".pdf"):
-        content = read_pdf(file_path)
-    else:
-        continue
-
-    if content:
-        documents.append(content)
-        embeddings.append(model.encode(content))
-
-# --- Criar índice FAISS ---
-embedding_dim = len(embeddings[0])
-index = faiss.IndexFlatL2(embedding_dim)
-index.add(np.array(embeddings).astype("float32"))
-
-# Guardar index e docs
-faiss.write_index(index, FAISS_INDEX_PATH)
-with open(DOCS_PATH, "wb") as f:
-    pickle.dump(documents, f)
-
-print(f"✅ Index criado com {len(documents)} documentos!")
-
+# === Execute ===
+if __name__ == "__main__":
+    os.makedirs(DATA_DIR, exist_ok=True)
+    docs = load_documents("../source_docs")
+    build_faiss_index(docs)
