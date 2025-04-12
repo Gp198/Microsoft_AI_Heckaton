@@ -1,80 +1,53 @@
-# live_intel_agent.py
-# Advanced live intelligence agent using Azure OpenAI with RAG, guardrails, and response validation
-
-import os
 import feedparser
-import aiohttp
-from openai import AsyncAzureOpenAI
-from dotenv import load_dotenv
 from datetime import datetime
 
-# === Load environment variables ===
-dotenv_path = os.path.join(os.path.dirname(__file__), ".env")
-load_dotenv(dotenv_path=dotenv_path)
+# === Professional System Prompt for Live Intel Agent ===
+SYSTEM_PROMPT = (
+    "You are DefensaCopilot, a real-time defense intelligence advisor. "
+    "Your mission is to provide concise, accurate updates from reliable open sources, such as NATO or globally trusted defense news. "
+    "Avoid speculation, cite sources clearly, and always indicate if the information is based on available public reports. "
+    "Never fabricate information and do not reference unknown or unverifiable sources."
+)
 
-AZURE_OPENAI_KEY = os.getenv("AZURE_OPENAI_KEY")
-AZURE_OPENAI_ENDPOINT = os.getenv("AZURE_OPENAI_ENDPOINT")
-AZURE_OPENAI_DEPLOYMENT = os.getenv("AZURE_OPENAI_DEPLOYMENT")
+# === RSS Feed Sources (can be expanded with more) ===
+RSS_FEEDS = [
+    "https://www.nato.int/cps/en/natolive/news.htm?format=rss",  # NATO Official
+    "https://www.defensenews.com/arc/outboundfeeds/rss/category/news/",  # DefenseNews
+    "https://www.armyrecognition.com/rss/armyrecognition_news.xml",  # Army Recognition
+]
 
-if not all([AZURE_OPENAI_KEY, AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_DEPLOYMENT]):
-    raise EnvironmentError("Missing one or more Azure OpenAI environment variables.")
-
-# === Azure OpenAI Chat Client ===
-class LiveIntelAgent:
-    def __init__(self):
-        self.client = AsyncAzureOpenAI(
-            api_key=AZURE_OPENAI_KEY,
-            azure_endpoint=AZURE_OPENAI_ENDPOINT,
-            azure_deployment=AZURE_OPENAI_DEPLOYMENT,
-            api_version="2024-03-01-preview"
-        )
-
-    async def fetch_latest_defense_news(self, topic="defense"):
-        rss_url = f"https://news.google.com/rss/search?q={topic}+defense&hl=en-US&gl=US&ceid=US:en"
-        feed = feedparser.parse(rss_url)
-        articles = [entry.title + ". " + entry.summary for entry in feed.entries[:5]]
-        return "\n".join(articles) if articles else "No recent updates found."
-
-    async def validate_response(self, response):
-        """
-        Guardrails: Basic checks for hallucinations.
-        Validates the structure and presence of relevant keywords.
-        """
-        if not response:
-            return False, "Response is empty."
-        if any(term in response.lower() for term in ["i am not sure", "as an ai", "cannot provide"]):
-            return False, "Model declined to answer clearly."
-        return True, "Response is valid."
-
-    async def ask(self, user_input):
-        # Retrieve contextual news from the web (RAG)
-        context = await self.fetch_latest_defense_news(user_input)
-
-        prompt = (
-            f"You are DefensaCopilot, an expert real-time defense analyst.
-            Always answer clearly and concisely, based only on the real-time intel provided.
-            Use professional tone, avoid speculation, and clearly cite your evidence.
-
-            Contextual Information:
-            {context}
-
-            User Question: {user_input}
-            Professional Response:"
-        )
-
+def fetch_latest_defense_news(limit=5):
+    """
+    Fetches the latest defense-related news from trusted RSS feeds.
+    Returns a list of formatted strings with title and link.
+    """
+    headlines = []
+    for feed_url in RSS_FEEDS:
         try:
-            response = await self.client.chat.completions.create(
-                model=AZURE_OPENAI_DEPLOYMENT,
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.3,
-                max_tokens=500
-            )
-            answer = response.choices[0].message.content.strip()
-            is_valid, validation_msg = await self.validate_response(answer)
-
-            if not is_valid:
-                return f"❌ Guardrail Alert: {validation_msg}"
-
-            return f"✅ {answer}"
+            feed = feedparser.parse(feed_url)
+            for entry in feed.entries[:limit]:
+                published = entry.get("published", "")
+                title = entry.get("title", "[No Title]")
+                link = entry.get("link", "")
+                summary = entry.get("summary", "")
+                
+                formatted_entry = f"\n📰 {title}\n🔗 {link}"
+                if published:
+                    formatted_entry += f"\n📅 Published: {published}"
+                headlines.append(formatted_entry)
         except Exception as e:
-            return f"❌ Error while querying Azure OpenAI: {e}"
+            headlines.append(f"⚠️ Failed to parse feed {feed_url}: {e}")
+
+    return headlines[:limit]
+
+def get_live_intel_response():
+    """
+    Core agent method to generate the real-time defense response from RSS feeds.
+    """
+    context_snippets = fetch_latest_defense_news()
+    return "\n\n".join(context_snippets)
+
+# Optional: Direct test method
+if __name__ == "__main__":
+    print("\n📡 Fetching real-time defense updates...\n")
+    print(get_live_intel_response())
