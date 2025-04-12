@@ -1,50 +1,67 @@
-# live_intel_agent.py — Real-time NATO News Agent with RSS Integration
+# live_intel_agent.py – Dynamic RAG-based Agent Only
 
 import os
-import feedparser
 from dotenv import load_dotenv
+from agents.semantic_rag import fetch_semantic_context
+from openai import AsyncAzureOpenAI
 
-# Load .env configuration for consistency if needed
-env_path = os.path.join(os.path.dirname(__file__), "../.env")
-load_dotenv(dotenv_path=env_path)
+# === Load environment variables ===
+load_dotenv()
 
-# Top reputable military/geopolitical sources
-RSS_FEEDS = [
-    "https://www.nato.int/cps/en/natohq/106110.html",
-    "https://www.reuters.com/live/",
-    "https://feeds.bbci.co.uk/news/world/rss.xml",
-    "https://www.defense.gov/DesktopModules/ArticleCS/RSS.ashx?ContentType=1",
-    "https://www.dw.com/pt-br/guerra-na-ucr%C3%A2nia/t-60942474",
-]
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+OPENAI_ENDPOINT = os.getenv("OPENAI_ENDPOINT")
+OPENAI_DEPLOYMENT = os.getenv("OPENAI_DEPLOYMENT")
+OPENAI_TEMPERATURE = float(os.getenv("OPENAI_TEMPERATURE", 0.3))
+OPENAI_RETRY_ATTEMPTS = int(os.getenv("OPENAI_RETRY_ATTEMPTS", 3))
 
-def fetch_live_news_snippets(limit: int = 3) -> list:
-    """
-    Fetch the latest defense-related news headlines from trusted RSS feeds.
-    Returns a list of strings with formatted summaries.
-    """
-    snippets = []
-    seen_titles = set()
+if not all([OPENAI_API_KEY, OPENAI_ENDPOINT, OPENAI_DEPLOYMENT]):
+    raise EnvironmentError("❌ Missing OpenAI .env configuration.")
 
-    for url in RSS_FEEDS:
+# === Initialize client ===
+client = AsyncAzureOpenAI(
+    api_key=OPENAI_API_KEY,
+    azure_endpoint=OPENAI_ENDPOINT,
+    api_version="2024-02-15-preview",
+)
+
+# === Core Prompt ===
+system_prompt = (
+    "You are DefensaCopilot, a defense-focused assistant. Respond only with factual, verified, and document-grounded information. "
+    "Avoid speculation or hallucination. If unsure or lacking support from documents, respond with: "
+    "'I cannot confirm this information at this time.'"
+)
+
+# === Function to handle queries with RAG only ===
+async def query_rag_only_agent(user_query: str) -> str:
+    try:
+        document_context = fetch_semantic_context(user_query)
+    except Exception:
+        document_context = "[RAG context unavailable]"
+
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {
+            "role": "user",
+            "content": f"Refer to the internal documents below to answer:
+\n{document_context}\n\nUser question: {user_query}"
+        },
+    ]
+
+    for attempt in range(OPENAI_RETRY_ATTEMPTS):
         try:
-            feed = feedparser.parse(url)
-            for entry in feed.entries:
-                title = entry.get("title", "[No Title]").strip()
-                if title in seen_titles:
-                    continue
-
-                summary = entry.get("summary", "No summary available.").split(".")[0].strip()
-                link = entry.get("link", "")
-                published = entry.get("published", "")
-                
-                snippet = f"• {title} ({published})\n  {summary}.\n  🔗 {link}"
-                snippets.append(snippet)
-                seen_titles.add(title)
-
-                if len(snippets) >= limit:
-                    return snippets
+            response = await client.chat.completions.create(
+                model=OPENAI_DEPLOYMENT,
+                messages=messages,
+                temperature=OPENAI_TEMPERATURE,
+                max_tokens=800,
+            )
+            return response.choices[0].message.content.strip()
 
         except Exception as e:
-            snippets.append(f"⚠️ Error fetching feed {url}: {e}")
+            if attempt == OPENAI_RETRY_ATTEMPTS - 1:
+                return f"❌ Failed after {OPENAI_RETRY_ATTEMPTS} attempts: {e}"
 
-    return snippets if snippets else ["⚠️ No live news available at this time."]
+    return "❌ Unable to produce a valid response after retries."
+
+# === Exported entry point ===
+__all__ = ["query_rag_only_agent"]
