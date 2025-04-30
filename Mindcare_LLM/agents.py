@@ -86,7 +86,7 @@ class HumanEscalationHandler:
 
     def detect_risk(self, message):
         message_lower = message.lower()
-        return any(kw in message_lower for kw in self.risk_keywords)
+        return any(kw in message_lower for kw in self.risk_keywords_en + self.risk_keywords_pt)
 
     def trigger_escalation(self):
         return (
