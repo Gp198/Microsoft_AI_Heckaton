@@ -42,6 +42,10 @@ Built with Azure OpenAI GPT-4o and Python (Streamlit), the system integrates Res
 | Human Resources Agent    | Explains flexibility options and HR policies                 |
 | Human Escalation Handler | Triggers alerts on detection of emotional danger             |
 
+
+![image](https://github.com/user-attachments/assets/b4631e74-ba98-4fa5-b0b4-5f33a922be64)
+
+
 ---
 
 ## 📁 Project Structure
