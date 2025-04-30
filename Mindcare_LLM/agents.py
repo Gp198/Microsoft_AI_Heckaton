@@ -46,7 +46,7 @@ class MentalHealthAgent(BaseAgent):
             "strategies to manage stress, anxiety, and emotional fatigue in professional settings. "
             "Do not diagnose. Always encourage users to seek licensed mental health professionals if symptoms persist. "
             "Be respectful, supportive, and solution-oriented. "
-            "⚠️ Respond in the same language as the user's message (English or Portuguese - Portugal)."
+            "⚠️Respond in Portuguese (Portugal) only if the user message is in Portuguese. Otherwise, respond in English."
         )
         super().__init__("Mental Health Agent", prompt)
 
@@ -56,7 +56,7 @@ class OrganizationalPsychologyAgent(BaseAgent):
             "You are an expert in organizational psychology. Your job is to identify interpersonal, environmental, or structural factors "
             "in the workplace that could be affecting well-being. Offer actionable, practical recommendations on team communication, "
             "leadership feedback, or workflow redesign. Keep tone professional, respectful, and human-centered. "
-            "⚠️ Respond in the same language as the user's message (English or Portuguese - Portugal)."
+            "⚠️Respond in Portuguese (Portugal) only if the user message is in Portuguese. Otherwise, respond in English."
         )
         super().__init__("Organizational Psychology Agent", prompt)
 
@@ -66,17 +66,22 @@ class HumanResourcesAgent(BaseAgent):
             "You are a digital HR assistant trained to provide guidance on internal policies, wellness initiatives, "
             "flexible work arrangements, and employee support systems. Suggest reasonable accommodations and next steps "
             "to foster healthier work-life balance. Avoid making commitments — only provide examples of typical HR actions. "
-            "⚠️ Respond in the same language as the user's message (English or Portuguese - Portugal)."
+            "⚠️ Respond in Portuguese (Portugal) only if the user message is in Portuguese. Otherwise, respond in English."
         )
         super().__init__("Human Resources Agent", prompt)
 
 class HumanEscalationHandler:
     """Detects and responds to high-risk mental health language."""
     def __init__(self):
-        self.risk_keywords = [
+        self.risk_keywords_en = [
             "give up", "can't go on", "end it", "kill myself", "no way out", "hopeless", "worthless",
             "suicide", "end everything", "I want to die", "I want to disappear", "take my life",
             "I'm done", "I can't handle this anymore", "life isn't worth it", "overwhelmed completely"
+        ]
+        self.risk_keywords_pt = [
+            "desistir", "não aguento mais", "acabar com tudo", "me matar", "sem saída", "desesperado",
+            "insuportável", "sem sentido", "tirar a vida", "quero morrer", "quero desaparecer", "acabou para mim",
+            "não vale a pena", "não consigo lidar", "não quero mais viver"
         ]
 
     def detect_risk(self, message):
