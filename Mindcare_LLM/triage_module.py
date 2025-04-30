@@ -1,4 +1,4 @@
-from agents import (
+from agents_multilingual_detect import (
     MentalHealthAgent,
     OrganizationalPsychologyAgent,
     HumanResourcesAgent,
@@ -6,40 +6,39 @@ from agents import (
 )
 
 class TriageAgent:
-    """Classifies the user's message and routes it to the appropriate agent."""
+    """Classifies the user's message and routes to the appropriate GPT agent or human escalation."""
     def __init__(self, name):
         self.name = name
         self.escalation_handler = HumanEscalationHandler()
 
-        # Define keyword categories for intelligent routing
+        # Routing keyword categories
         self.environment_keywords = [
             "team", "colleague", "manager", "office", "communication", "environment",
-            "leadership", "conflict", "boss"
+            "leadership", "conflict", "boss",
+            "equipa", "colega", "chefe", "gestor", "ambiente", "comunicação", "liderança", "conflito"
         ]
         self.hr_keywords = [
             "schedule", "hours", "workload", "remote", "leave", "pay", "benefits",
-            "vacation", "salary", "contract", "promotion", "transfer", "flexibility"
+            "vacation", "salary", "contract", "promotion", "transfer", "flexibility",
+            "horário", "carga horária", "folga", "remoto", "salário", "contrato", "férias", "promoção", "reposição"
         ]
 
     def analyze_message(self, message):
-        """Basic classifier using keywords and safety escalation handler."""
+        """Basic keyword classifier + safety guardrail escalation check."""
         if self.escalation_handler.detect_risk(message):
             return "escalate"
         message_lower = message.lower()
 
-        # Keyword-based routing (environmental)
         if any(keyword in message_lower for keyword in self.environment_keywords):
             return "organizational_psychology"
 
-        # Keyword-based routing (HR-related)
         if any(keyword in message_lower for keyword in self.hr_keywords):
             return "hr"
 
-        # Default to emotional/mental health
         return "mental_health"
 
     def respond(self, message):
-        """Returns routing summary and the selected agent (or escalation message)."""
+        """Returns a summary and the routed agent or an escalation message."""
         route = self.analyze_message(message)
 
         if route == "escalate":
