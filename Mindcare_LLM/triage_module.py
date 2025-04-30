@@ -1,4 +1,4 @@
-from agents_multilingual_detect import (
+from agents import (
     MentalHealthAgent,
     OrganizationalPsychologyAgent,
     HumanResourcesAgent,
