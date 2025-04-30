@@ -23,16 +23,17 @@ st.markdown(
     """, unsafe_allow_html=True
 )
 
-# --- Instructions ---
+# Instructions section
 with st.expander("ℹ️ How to Use This App", expanded=True):
     st.markdown("""
     **Instructions**:
-    - Share how you're feeling at work (English or Portuguese - Portugal).
-    - MindCare routes your message to the right expert — or triggers escalation if you're at emotional risk.
-    - Try these:
-        - "I'm feeling overwhelmed and anxious"
-        - "Meu chefe não me escuta"
-        - "Quero desaparecer"
+    - Describe how you feel at work in English or Portuguese (Portugal).
+    - The system will route you to the most appropriate support agent.
+    - Try different cases:
+        - Mental health: *"I feel overwhelmed with deadlines"*
+        - Team issue: *"My team doesn't communicate well"*
+        - HR support: *"Can I switch to a flexible schedule?"*
+        - Escalation: *"I feel like giving up"*
     """)
 
 # --- Sidebar controls ---
