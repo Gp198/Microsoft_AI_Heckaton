@@ -104,7 +104,7 @@ streamlit run app.py
 ---
 
 ## 📽️ Demo Video
-[Insert your video demo link here]
+[https://www.loom.com/share/9f2ac6b174bd4773a215ab7bdf753848?sid=a7aa3335-ce2d-4b0b-834a-7889b91a9ae3]
 
 ---
 
