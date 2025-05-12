@@ -108,6 +108,13 @@ streamlit run app.py
 
 ---
 
+---
+
+## 🚀 Streamlit Deployment
+[https://microsoftaiheckaton-9zdhthakxgrs4rekhbmt4b.streamlit.app/]
+
+---
+
 ## 🧾 Submission Details
 - **Category**: Responsible AI / Python / Azure OpenAI
 - **Team**: [StatiC]
